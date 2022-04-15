@@ -1,0 +1,67 @@
+#!/bin/bash
+#
+# extract_hdr_from_image - extract an IBM Secure Execution header from the Image
+# 
+# Sample:
+# ./extract_hdr_from_image -i se-image.bin -o se-hdr.bin 
+#
+
+# Enhanced error checking for bash
+if [ -n "${BASH}" ]
+then
+    set -o posix
+    set -o pipefail
+    set -o nounset
+fi
+set -e
+
+usage()
+{
+cat <<-EOF
+Usage: `basename $0` [-o hdr.bin] [-s 0x14000] FILE
+
+Extract the Header of the SE image in FILE.
+By default the 0x14000 bytes will be skipped until starting to  extract the header.
+Skip can be defined in decimal or hexadecimal.
+hdr.bin is the default output file name.
+EOF
+}
+
+function check_file()
+{
+    [ $# = 0 ] ||
+    [ -e "$1" ] ||
+    (echo "File '$1' not found" >&2 && exit 1)
+}
+
+function check_hdr()
+{
+	img=$1
+	skip=$2
+	dd if=${img} bs=1 count=8 skip=$((skip)) of=/dev/stdout status=none | xxd -l 8  | grep -q IBMSecEx ||
+		(echo "There is no header at the specified location ("${skip}")" >&2 &&	exit 1)
+}
+
+input="${@: -1}"
+output="hdr.bin"
+skip=0x14000
+while getopts 'o:s:h' OPTION ; do
+	case "$OPTION" in
+		o) output="$OPTARG";;
+		s) skip="$OPTARG";;
+		h) usage; exit 0;;
+	esac
+done
+
+if [ ! -v input ]
+then
+	echo "input not set. Use -i FILE to specify the Input file" >&2
+	exit 1
+fi
+
+check_file "$input"
+check_hdr "${input}" "${skip}"
+
+size=$(dd if=${input} bs=1 count=4 skip=$((skip + 12)) of=/dev/stdout status=none | hexdump | awk 'NR==1 {print "0x" $2 $3}')
+
+dd if=${input} of=${output} bs=1 count=$((size)) skip=$((skip)) status=none
